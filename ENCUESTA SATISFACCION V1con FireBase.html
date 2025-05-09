@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Encuesta de Satisfacción - Recinto Funeral</title>
+  <!-- Firebase SDKs -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAH_iLPbsJQxjrQIJBt4Qnx7tCRWL3ZUYI",
+      authDomain: "encuestasatisfaccion-v1.firebaseapp.com",
+      projectId: "encuestasatisfaccion-v1",
+      storageBucket: "encuestasatisfaccion-v1.firebasestorage.app",
+      messagingSenderId: "618929069606",
+      appId: "1:618929069606:web:5175f8023ab3d93b3d50e7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const responsesCol = collection(db, 'responses');
+
+    // Expose for other scripts
+    window.firebaseServices = { auth, db, responsesCol, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, addDoc, getDocs };
+  </script>
+  <style>
+    /* Reset */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { font-family: Arial, sans-serif; background: #f3f4f6; color: #111; }
+    :root { --gold: #d4af37; --black: #000; --white: #fff; --border: #ccc; }
+    header { background: var(--white); box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: fixed; top: 0; width: 100%; z-index: 10; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+    main { padding: 80px 20px 20px; max-width: 800px; margin: auto; }
+    .card { background: var(--white); border-radius: 0 0 8px 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 24px; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.25rem; margin-bottom: 16px; color: var(--gold); }
+    .grid { display: grid; gap: 16px; }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); }
+    input[type=text], input[type=date] { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 4px; }
+    textarea { width: 100%; padding: 8px; border: 1px dashed var(--border); border-radius: 4px; resize: vertical; }
+    /* Tabs */
+    #tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--border); margin-bottom: 16px; padding-bottom: 8px; }
+    .tab-item { padding: 8px 16px; border: 1px solid var(--border); border-bottom: none; border-top-left-radius: 8px; border-top-right-radius: 8px; background: transparent; cursor: pointer; flex-shrink: 0; transition: background 0.2s; }
+    .tab-item.active { background: var(--white); font-weight: bold; }
+    .tab-item:hover { color: var(--gold); }
+    /* Rating Buttons */
+    .rating-grid { display: flex; gap: 32px; margin-top: 8px; }
+    .rating-option { display: flex; flex-direction: column; align-items: center; }
+    .rating-option input { transform: scale(1.5); margin-bottom: 4px; }
+    .rating-option span { font-size: 0.875rem; }
+    /* Actions */
+    .actions { display: flex; gap: 12px; margin-top: 16px; }
+    .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn-primary { background: var(--gold); color: var(--black); }
+    .btn-secondary { background: var(--black); color: var(--white); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<header>
+  <div style="display:flex; align-items:center; gap:8px;"><img src="/path/to/logo.png" alt="Logo" style="height:32px;"><h1>Encuesta de Satisfacción</h1></div>
+</header>
+<main>
+  <div class="card">
+    <form id="surveyForm" novalidate>
+      <!-- Identificación -->
+      <div class="grid grid-3 mb-6">
+        <div><label for="serviceNumber">Número de Servicio</label><input id="serviceNumber" name="serviceNumber" type="text" required placeholder="S-XXXXX"></div>
+        <div><label for="deceasedName">Nombre del Finado</label><input id="deceasedName" name="deceasedName" type="text" required placeholder="Nombre completo"></div>
+        <div><label for="serviceDate">Fecha del Servicio</label><input id="serviceDate" name="serviceDate" type="date" required></div>
+      </div>
+      <!-- Pestañas -->
+      <div id="tabs"></div>
+      <!-- Secciones dinámicas -->
+      <div id="modulesContainer"></div>
+      <!-- Acciones -->
+      <div class="actions">
+        <button type="submit" class="btn btn-primary">Enviar</button>
+        <button type="button" id="exportJsonBtn" class="btn btn-secondary">Exportar JSON</button>
+      </div>
+    </form>
+  </div>
+</main>
+<script>
+// Estructura de módulos y preguntas
+(function(){
+  const modules = {
+    'ATENCIÓN Y EMPATÍA': [
+      'Rapidez y eficiencia de la respuesta inicial al contactarnos',
+      'Empatía y calidez del personal durante todo el proceso',
+      'Profesionalismo y presentación del personal'
+    ],
+    'INFORMACIÓN Y RESOLUCIÓN DE DUDAS': [
+      'Claridad en la información y orientación proporcionada',
+      'Resolución de dudas y necesidades de manera oportuna'
+    ],
+    'INSTALACIONES Y PRESENTACIÓN': [
+      'Calidad y respeto en la presentación de su ser querido',
+      'Limpieza y presentación de las instalaciones funerarias',
+      'Comodidad y limpieza de la capilla'
+    ],
+    'SUPERVISIÓN Y SERVICIOS': [
+      'Supervisión y apoyo durante la velación',
+      'Calidad de los servicios adicionales (cafetería, homenajes, etc.)',
+      'Cumplimiento de protocolos sanitarios y medidas de higiene'
+    ],
+    'SATISFACCIÓN GENERAL': [
+      'Nivel de satisfacción general con el servicio recibido'
+    ]
+  };
+  const commentLabels = [
+    '13. ¿Algún aspecto que considera debe mejorar?',
+    '14. ¿Qué fue lo que más valoró del servicio recibido?',
+    '15. ¿Recomendaría nuestros servicios a otras personas? ¿Por qué?'
+  ];
+  const ratingLabels = ['Muy Mala','Mala','Aceptable','Buena','Excelente'];
+
+  const tabs = document.getElementById('tabs');
+  const container = document.getElementById('modulesContainer');
+  const sections = [];
+  let qIndex = 0;
+
+  Object.entries(modules).forEach(([name, questions], idx) => {
+    const tab = document.createElement('div');
+    tab.textContent = name; tab.className = 'tab-item'+(idx===0?' active':'');
+    tab.onclick = () => activate(idx);
+    tabs.append(tab);
+
+    const section = document.createElement('div');
+    section.className = idx===0?'':'hidden';
+    const title = document.createElement('h2'); title.textContent=name;
+    section.append(title);
+
+    questions.forEach(text=>{
+      qIndex++;
+      const block=document.createElement('div'); block.style.marginBottom='16px';
+      const lbl=document.createElement('label'); lbl.textContent=`${qIndex}. ${text}`;
+      block.append(lbl);
+      const rg=document.createElement('div'); rg.className='rating-grid';
+      ratingLabels.forEach((rl,i)=>{
+        const opt=document.createElement('label'); opt.className='rating-option';
+        const inp=document.createElement('input'); inp.type='radio'; inp.name=`q${qIndex}`; inp.value=i+1; inp.required=true;
+        const sp=document.createElement('span'); sp.textContent=rl;
+        opt.append(inp,sp); rg.append(opt);
+      });
+      block.append(rg); section.append(block);
+    });
+
+    container.append(section);
+    sections.push(section);
+  });
+
+  // Comentarios
+  const cIdx=sections.length;
+  const cTab=document.createElement('div'); cTab.textContent='Comentarios'; cTab.className='tab-item'; cTab.onclick=()=>activate(cIdx);
+  tabs.append(cTab);
+  const cSec=document.createElement('div'); cSec.className='hidden';
+  const cTitle=document.createElement('h2'); cTitle.textContent='Comentarios Abiertos'; cSec.append(cTitle);
+  commentLabels.forEach(txt=>{
+    const w=document.createElement('div'); w.style.marginBottom='16px';
+    const l=document.createElement('label'); l.textContent=txt;
+    const ta=document.createElement('textarea'); ta.rows=3; ta.required=true;
+    w.append(l,ta); cSec.append(w);
+  });
+  const note=document.createElement('p'); note.textContent='Agradecemos sinceramente su tiempo y sus valiosos comentarios. Su opinión nos ayuda a brindar el mejor apoyo a las familias en momentos difíciles.';
+  cSec.append(note);
+  container.append(cSec);
+  sections.push(cSec);
+
+  function activate(i){
+    sections.forEach((s,idx)=>s.classList.toggle('hidden',idx!==i));
+    tabs.querySelectorAll('.tab-item').forEach((t,idx)=>t.classList.toggle('active',idx===i));
+  }
+})();
+
+// Lógica de Firebase y manejo de formulario
+document.getElementById('surveyForm').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const { responsesCol, addDoc } = window.firebaseServices;
+  const serviceNumber=document.getElementById('serviceNumber').value;
+  const deceasedName=document.getElementById('deceasedName').value;
+  const serviceDate=document.getElementById('serviceDate').value;
+
+  // Recoger respuestas
+  const answers=[];
+  const inputs=document.querySelectorAll('#modulesContainer input:checked');
+  inputs.forEach(inp=>{ answers.push({ question:inp.name, score: Number(inp.value) }); });
+  const comments=[];
+  document.querySelectorAll('#modulesContainer textarea').forEach(ta=>comments.push(ta.value));
+
+  // Guardar en Firestore
+  await addDoc(responsesCol, {
+    serviceNumber, deceasedName, serviceDate,
+    answers, comments, timestamp: new Date()
+  });
+  alert('Encuesta enviada correctamente');
+  e.target.reset();
+});
+
+// Exportar JSON de respuestas desde Firestore
+document.getElementById('exportJsonBtn').addEventListener('click', async ()=>{
+  const { responsesCol, getDocs } = window.firebaseServices;
+  const snapshot = await getDocs(responsesCol);
+  const data=snapshot.docs.map(doc=>doc.data());
+  const blob=new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='respuestas.json'; a.click();
+});
+</script>
+</body>
+</html>
